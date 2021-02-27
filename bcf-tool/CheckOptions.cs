@@ -2,6 +2,7 @@
 using Force.Crc32;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -29,8 +30,11 @@ namespace bcfTool
 		[Option('w', "write-mismatch", Required = false, HelpText = "Writes copy of mismatched file next to unzipped.", Default = false)]
 		public bool WriteMismatch { get; set; }
 
-		[Option('u', "uniqueGuid", Default = false, Required = false, HelpText = "Ghecks that GUID are unique across the fileset.")]
+		[Option('u', "uniqueGuid", Default = false, Required = false, HelpText = "Checks that GUID are unique across the fileset.")]
 		public bool CheckUniqueGuid { get; set; }
+
+		[Option('i', "imageSize", Default = false, Required = false, HelpText = "Checks that images aren't too large.")]
+		public bool CheckImageSize { get; set; }
 
 		[Value(0, MetaName = "source",
 			HelpText = "Input source to be processed can be file or folder",
@@ -51,12 +55,14 @@ namespace bcfTool
 				&& !opts.CheckUniqueGuid
 				&& !opts.CheckZipMatch
 				&& !opts.CheckNewLines
+				&& !opts.CheckImageSize
 				)
 			{
 				opts.CheckSchema = true;
 				opts.CheckUniqueGuid = true;
 				opts.CheckZipMatch = true;
 				opts.CheckNewLines = true;
+				opts.CheckImageSize = true;
 			}
 
 			if (Directory.Exists(opts.InputSource))
@@ -130,7 +136,6 @@ namespace bcfTool
 			{
 				return f.FullName.Replace(Options.ResolvedSource.FullName, "");
 			}
-
 		}
 
 		private static Status ProcessSingleExample(FileInfo fileInfo, CheckInfo c)
@@ -212,21 +217,42 @@ namespace bcfTool
 				CheckSchemaCompliance(c, unzippedDir, version, "bcfv", $"schemas/{version}/visinfo.xsd");
 				CheckSchemaCompliance(c, unzippedDir, version, "bcfp", $"schemas/{version}/project.xsd");
 			}
-
 			if (c.Options.CheckUniqueGuid)
 			{
 				CheckUniqueIDs(c, unzippedDir, version, "bcf");
 				CheckUniqueIDs(c, unzippedDir, version, "bcfv");
 			}
-
 			if (c.Options.CheckNewLines)
 			{
 				CheckMultiLine(c, unzippedDir, "bcf");
 				CheckMultiLine(c, unzippedDir, "bcfv");
 				CheckMultiLine(c, unzippedDir, "bcfp");
 			}
+			if (c.Options.CheckImageSize)
+			{
+				CheckImageSizeIsOk(c, unzippedDir);
+			}
+
 
 			return Status.Ok;
+		}
+
+		private static void CheckImageSizeIsOk(CheckInfo c, DirectoryInfo unzippedDir)
+		{
+			List<string> extensions = new List<string> { "png", "jpg" };
+			foreach (var ext in extensions)
+			{
+				var imageFiles = unzippedDir.GetFiles($"*.{ext}", SearchOption.AllDirectories);
+				foreach (var imageFile in imageFiles)
+				{
+					var t = Image.FromFile(imageFile.FullName);
+					if (t.Width > 1500 || t.Height > 1500)
+					{
+						Console.WriteLine($"IMAGE SIZE\t{c.CleanName(imageFile)}\tIs too big ({t.Width} x {t.Height}).");
+						c.Status |= Status.ContentError;
+					}
+				}
+			}
 		}
 
 		private static void CheckMultiLine(CheckInfo c, DirectoryInfo unzippedDir, string fileExtension)
