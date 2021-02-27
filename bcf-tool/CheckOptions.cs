@@ -95,7 +95,7 @@ namespace bcfTool
 				.Where(x => !x.FullName.Contains("unzipped", StringComparison.InvariantCultureIgnoreCase))
 				.ToList()
 				);
-			foreach (var bcf in allBcfs)
+			foreach (var bcf in allBcfs.OrderBy(x => x.FullName))
 			{
 				ProcessSingleExample(bcf, c);
 			}
