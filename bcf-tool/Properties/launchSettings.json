@@ -2,7 +2,7 @@
   "profiles": {
     "bcf-tool": {
       "commandName": "Project",
-      "commandLineArgs": "check \"C:\\Data\\Dev\\BuildingSmart\\BCF-XML\\Test Cases\" -m > nomatch.txt"
+      "commandLineArgs": "check \"C:\\Data\\Dev\\BuildingSmart\\BCF-XML\\Test Cases\" "
     }
   }
 }

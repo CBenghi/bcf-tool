@@ -6,7 +6,9 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Xml;
+using System.Xml.Linq;
 using System.Xml.Schema;
+using System.Xml.XPath;
 using static bcfTool.Program;
 
 namespace bcfTool
@@ -15,17 +17,20 @@ namespace bcfTool
 	[Verb("check", HelpText = "check files for issues.")]
 	internal class CheckOptions
 	{
-		[Option('s', "no-schema", Required = false, HelpText = "skips xsd schema check.", Default = false)]
-		public bool NoSchema { get; set; }
+		[Option('s', "schema", Required = false, HelpText = "check xsd schema compliance.", Default = false)]
+		public bool CheckSchema { get; set; }
 
-		[Option('m', "no-match", Required = false, HelpText = "skips crc check match between zipped and unzipped.", Default = false)]
-		public bool NoZipMatch { get; set; }
+		[Option('m', "match", Required = false, HelpText = "check crc match between zipped and unzipped.", Default = false)]
+		public bool CheckZipMatch { get; set; }
+
+		[Option('n', "newLines", Required = false, HelpText = "check unzipped folder is split in lines in xmls.", Default = false)]
+		public bool CheckNewLines { get; set; }
 
 		[Option('w', "write-mismatch", Required = false, HelpText = "Writes copy of mismatched file next to unzipped.", Default = false)]
 		public bool WriteMismatch { get; set; }
 
-		[Option('u', "no-uniqueGuid", Default = true, Required = false, HelpText = "Verifies that GUID are unique across the fileset.")]
-		public bool NoUniqueGuid { get; set; }
+		[Option('u', "uniqueGuid", Default = false, Required = false, HelpText = "Ghecks that GUID are unique across the fileset.")]
+		public bool CheckUniqueGuid { get; set; }
 
 		[Value(0, MetaName = "source",
 			HelpText = "Input source to be processed can be file or folder",
@@ -37,17 +42,38 @@ namespace bcfTool
 		internal static Status Run(CheckOptions opts)
 		{
 			Console.WriteLine("=== bcf-tool - checking example files.");
+
+			if (opts.WriteMismatch)
+				opts.CheckZipMatch = true;
+			// if no check is required than check all
+			if (
+				!opts.CheckSchema
+				&& !opts.CheckUniqueGuid
+				&& !opts.CheckZipMatch
+				&& !opts.CheckNewLines
+				)
+			{
+				opts.CheckSchema = true;
+				opts.CheckUniqueGuid = true;
+				opts.CheckZipMatch = true;
+				opts.CheckNewLines = true;
+			}
+
 			if (Directory.Exists(opts.InputSource))
 			{
 				var t = new DirectoryInfo(opts.InputSource);
 				opts.ResolvedSource = t;
-				return ProcessExamplesFolder(t, new CheckInfo(opts));
+				var ret = ProcessExamplesFolder(t, new CheckInfo(opts));
+				Console.WriteLine($"Completed with status: {ret}.");
+				return ret;
 			}
 			if (File.Exists(opts.InputSource))
 			{
 				var t = new FileInfo(opts.InputSource);
 				opts.ResolvedSource = t;
-				return ProcessSingleExample(t, new CheckInfo(opts));
+				var ret = ProcessSingleExample(t, new CheckInfo(opts));
+				Console.WriteLine($"Completed with status: {ret}.");
+				return ret;
 			}
 			Console.WriteLine($"Error: Invalid input source '{opts.InputSource}'");
 			return Status.NotFoundError;
@@ -117,7 +143,7 @@ namespace bcfTool
 				Console.WriteLine($"Error\t{c.CleanName(fileInfo)}\tUnzipped folder not found.");
 			}
 
-			if (!c.Options.NoZipMatch)
+			if (c.Options.CheckZipMatch)
 			{
 				var zip = ZipFile.OpenRead(fileInfo.FullName);
 				foreach (var entry in zip.Entries)
@@ -180,14 +206,41 @@ namespace bcfTool
 				return Status.ContentError;
 			}
 
-			if (!c.Options.NoSchema)
+			if (c.Options.CheckSchema)
 			{
 				CheckSchemaCompliance(c, unzippedDir, version, "bcf", $"schemas/{version}/markup.xsd");
 				CheckSchemaCompliance(c, unzippedDir, version, "bcfv", $"schemas/{version}/visinfo.xsd");
 				CheckSchemaCompliance(c, unzippedDir, version, "bcfp", $"schemas/{version}/project.xsd");
 			}
 
+			if (c.Options.CheckUniqueGuid)
+			{
+				CheckUniqueIDs(c, unzippedDir, version, "bcf");
+				CheckUniqueIDs(c, unzippedDir, version, "bcfv");
+			}
+
+			if (c.Options.CheckNewLines)
+			{
+				CheckMultiLine(c, unzippedDir, "bcf");
+				CheckMultiLine(c, unzippedDir, "bcfv");
+				CheckMultiLine(c, unzippedDir, "bcfp");
+			}
+
 			return Status.Ok;
+		}
+
+		private static void CheckMultiLine(CheckInfo c, DirectoryInfo unzippedDir, string fileExtension)
+		{
+			var markupFiles = unzippedDir.GetFiles($"*.{fileExtension}", SearchOption.AllDirectories);
+			foreach (var markupFile in markupFiles)
+			{
+				var lineCount = File.ReadLines(markupFile.FullName).Count();
+				if (lineCount < 2)
+				{
+					Console.WriteLine($"NEWLINE ERROR\t{c.CleanName(markupFile)}\tHas {lineCount} lines");
+					c.Status |= Status.ContentError;
+				}
+			}
 		}
 
 		private static string Clean(string v)
@@ -200,6 +253,42 @@ namespace bcfTool
 			return v;
 		}
 
+
+
+		private static void CheckUniqueIDs(CheckInfo c, DirectoryInfo unzippedDir, string version, string fileExtension)
+		{
+			var markupFiles = unzippedDir.GetFiles($"*.{fileExtension}", SearchOption.AllDirectories);
+
+			List<string> uniques = new List<string>()
+			{
+				"/*/Topic/@Guid",
+				"/*/Comment/@Guid"
+			};
+
+			foreach (var markupFile in markupFiles)
+			{
+				var docNav = new XPathDocument(markupFile.FullName);
+				var nav = docNav.CreateNavigator();
+				foreach (var uniquePath in uniques)
+				{
+					var iterator1 = nav.Select(uniquePath);
+					while (iterator1.MoveNext())
+					{
+						var guid = iterator1.Current.Value;
+						if (c.guids.ContainsKey(guid))
+						{
+							Console.WriteLine($"GUID '{guid}' duplicated\t{c.CleanName(markupFile)}\tAlso Found in {c.guids[guid]}");
+							c.Status |= Status.ContentError;
+						}
+						else
+						{
+							c.guids.Add(guid, c.CleanName(markupFile));
+						}
+					}
+				}
+
+			}
+		}
 		private static void CheckSchemaCompliance(CheckInfo c, DirectoryInfo unzippedDir, string version, string fileExtension, string requiredSchema)
 		{
 			var cache = c.currentFile;
