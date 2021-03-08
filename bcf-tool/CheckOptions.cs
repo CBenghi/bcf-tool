@@ -36,6 +36,9 @@ namespace bcfTool
 		[Option('u', "uniqueGuid", Default = false, Required = false, HelpText = "Check that GUID are unique across the fileset.")]
 		public bool CheckUniqueGuid { get; set; }
 
+		[Option('q', "qualityAssurance", Default = false, Required = false, HelpText = "Perform the checks that are meaningful for the BCF-XML official repository.")]
+		public bool QualityAssurance { get; set; }
+
 		// images can be fixed with
 		// - (linux):   mogrify -resize 1500x1500\> name.ext
 		// - (windows): mogrify -resize 1500x1500^> name.ext
@@ -60,8 +63,16 @@ namespace bcfTool
 
 			if (opts.ReZip)
 				opts.CheckZipMatch = true;
+			
+			if (opts.QualityAssurance)
+			{
+				// enables default tests and then the ones specific for QA of bcf-xml
+				SetBasicChecks(opts);
+				opts.CheckZipMatch = true;
+				opts.CheckNewLines = true;
+			}
 
-			// if no check is required than check all
+			// if no check is required than check default
 			if (
 				!opts.CheckSchema
 				&& !opts.CheckUniqueGuid
@@ -70,12 +81,8 @@ namespace bcfTool
 				&& !opts.CheckImageSize
 				)
 			{
-				opts.CheckSchema = true;
-				opts.CheckUniqueGuid = true;
-				opts.CheckZipMatch = true;
-				opts.CheckNewLines = true;
-				opts.CheckImageSize = true;
-				Console.WriteLine("Performing all checks.");
+				SetBasicChecks(opts);
+				Console.WriteLine("Performing default checks.");
 			}
 			else
 			{
@@ -113,6 +120,13 @@ namespace bcfTool
 			return Status.NotFoundError;
 		}
 
+		private static void SetBasicChecks(CheckOptions opts)
+		{
+			opts.CheckSchema = true;
+			opts.CheckUniqueGuid = true;
+			opts.CheckImageSize = true;
+		}
+
 		private static Status ProcessExamplesFolder(DirectoryInfo directoryInfo, CheckInfo c)
 		{
 			var allBcfs = directoryInfo.GetFiles("*.bcf", SearchOption.AllDirectories)
@@ -147,38 +161,45 @@ namespace bcfTool
 			public Dictionary<string, string> guids = new Dictionary<string, string>();
 
 			// if you think `options` is ugly, this is jsut awful ;-)
-			public FileInfo currentFile { get; set; }
+			public string validatingFile { get; set; }
+
 			public Status Status { get; internal set; }
 
 			public void validationReporter(object sender, ValidationEventArgs e)
 			{
 				if (e.Severity == XmlSeverityType.Warning)
 				{
-					Console.WriteLine($"XML WARNING\t{CleanName(currentFile)}\t{e.Message}");
+					Console.WriteLine($"XML WARNING\t{validatingFile}\t{e.Message}");
 					Status |= Status.ContentError;
 				}
 				else if (e.Severity == XmlSeverityType.Error)
 				{
-					Console.WriteLine($"XML ERROR\t{CleanName(currentFile)}\t{e.Message}");
+					Console.WriteLine($"XML ERROR\t{validatingFile}\t{e.Message}");
 					Status |= Status.ContentError;
 				}
 			}
 
 			public string CleanName(FileInfo f)
 			{
-				return f.FullName.Replace(Options.ResolvedSource.FullName, "");
+				return Path.GetRelativePath(Options.ResolvedSource.FullName, f.FullName);
 			}
 		}
 
 		private static Status ProcessSingleExample(FileInfo zippedFileInfo, CheckInfo c)
 		{
-			c.currentFile = zippedFileInfo;
+			BcfSource source = new ZippedFileSource(zippedFileInfo);
 			var dirPath = Path.Combine(zippedFileInfo.DirectoryName, "unzipped");
 			var unzippedDirInfo = new DirectoryInfo(dirPath);
-			if (!unzippedDirInfo.Exists)
+			if (unzippedDirInfo.Exists && c.Options.CheckZipMatch)
+			{
+				source = new FolderSource(unzippedDirInfo);
+			}
+			else if (c.Options.CheckZipMatch)
 			{
 				Console.WriteLine($"MISMATCH\t{c.CleanName(zippedFileInfo)}\tUnzipped folder not found.");
 			}
+
+			// this checks the match between zipped and unzipped
 			if (c.Options.CheckZipMatch)
 			{
 				bool rezip = false;
@@ -249,20 +270,7 @@ namespace bcfTool
 				}
 			}
 
-			var versionfile = Path.Combine(unzippedDirInfo.FullName, "bcf.version");
-			if (!File.Exists(versionfile))
-			{
-				Console.WriteLine($"VERSION\t{c.CleanName(zippedFileInfo)}\tversion file missing, further checks stopped.");
-				return Status.NotFoundError;
-			}
-			var version = "";
-			var versionfileContent = File.ReadAllText(versionfile);
-			if (versionfileContent.Contains("3.0", StringComparison.InvariantCultureIgnoreCase))
-				version = "v3.0";
-			else if (versionfileContent.Contains("2.1", StringComparison.InvariantCultureIgnoreCase))
-				version = "v2.1";
-			else if (versionfileContent.Contains("2.0", StringComparison.InvariantCultureIgnoreCase))
-				version = "v2.0";
+			var version = source.GetVersion();
 			if (version == "")
 			{
 				Console.WriteLine($"VERSION\t{c.CleanName(zippedFileInfo)}\tversion not resolved, further checks stopped.");
@@ -271,16 +279,17 @@ namespace bcfTool
 
 			if (c.Options.CheckSchema)
 			{
-				CheckSchemaCompliance(c, unzippedDirInfo, version, "bcf", $"schemas/{version}/markup.xsd");
-				CheckSchemaCompliance(c, unzippedDirInfo, version, "bcfv", $"schemas/{version}/visinfo.xsd");
-				CheckSchemaCompliance(c, unzippedDirInfo, version, "bcfp", $"schemas/{version}/project.xsd");
+				CheckSchemaCompliance(c, source, version, "bcf", $"schemas/{version}/markup.xsd");
+				CheckSchemaCompliance(c, source, version, "bcfv", $"schemas/{version}/visinfo.xsd");
+				CheckSchemaCompliance(c, source, version, "bcfp", $"schemas/{version}/project.xsd");
 			}
 			if (c.Options.CheckUniqueGuid)
 			{
 				CheckUniqueIDs(c, unzippedDirInfo, version, "bcf");
 				CheckUniqueIDs(c, unzippedDirInfo, version, "bcfv");
 			}
-			if (c.Options.CheckNewLines)
+			// no need to check new lines on compressed files
+			if (c.Options.CheckNewLines && source is FolderSource)
 			{
 				CheckMultiLine(c, unzippedDirInfo, "bcf");
 				CheckMultiLine(c, unzippedDirInfo, "bcfv");
@@ -369,20 +378,18 @@ namespace bcfTool
 				}
 			}
 		}
-		private static void CheckSchemaCompliance(CheckInfo c, DirectoryInfo unzippedDir, string version, string fileExtension, string requiredSchema)
+		private static void CheckSchemaCompliance(CheckInfo c, BcfSource unzippedDir, string version, string fileExtension, string requiredSchema)
 		{
-			var cache = c.currentFile;
-			var markupFiles = unzippedDir.GetFiles($"*.{fileExtension}", SearchOption.AllDirectories);
 			List<string> schemas = new List<string>
 			{
 				requiredSchema
 			};
 			if (version == "v3.0")
 				schemas.Add($"schemas/{version}/shared-types.xsd");
+			var markupFiles = unzippedDir.GetLocalNames($".{fileExtension}");
 			foreach (var markupFile in markupFiles)
 			{
-				c.currentFile = markupFile;
-				var alltext = File.ReadAllText(markupFile.FullName);
+				c.validatingFile = c.CleanName(new FileInfo(Path.Combine(unzippedDir.FullName, markupFile)));
 				XmlReaderSettings rSettings = new XmlReaderSettings();
 				foreach (var schema in schemas)
 				{
@@ -390,15 +397,12 @@ namespace bcfTool
 				}
 				rSettings.ValidationType = ValidationType.Schema;
 				rSettings.ValidationEventHandler += new ValidationEventHandler(c.validationReporter);
-				XmlReader content = XmlReader.Create(markupFile.FullName, rSettings);
+				XmlReader content = XmlReader.Create(unzippedDir.GetStream(markupFile), rSettings);
 				while (content.Read())
 				{
 					// read all files to trigger validation events.
 				}
-			}
-
-			// restore so that more feedback can be provided
-			c.currentFile = cache;
+			}			
 		}
 
 		public static byte[] ReadFully(Stream input)

@@ -4,6 +4,22 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>netcoreapp3.1</TargetFramework>
     <RootNamespace>BcfTool</RootNamespace>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PackageProjectUrl>https://github.com/CBenghi/bcf-tool/</PackageProjectUrl>
+    <Copyright>Claudio Benghi</Copyright>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <Description>A command line tool to check BCF Files.
+
+buildingSmart Building Collaboration Format files can be checked against their relative schema.
+Features are also available to check the BCF repository for the expected 'unzipped' folder.</Description>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageTags>bcf, buildingSmart</PackageTags>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <RepositoryUrl>https://github.com/CBenghi/bcf-tool.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReleaseNotes>First implementation.</PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -64,6 +80,10 @@
     </None>
     <None Update="schemas\v3.0\visinfo.xsd">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\graphics\icon.png">
+      <Pack>True</Pack>
+      <PackagePath></PackagePath>
     </None>
   </ItemGroup>
 
