@@ -51,7 +51,7 @@
 			<xs:element name="ReferenceSchema" type="xs:string" minOccurs="1" maxOccurs="1"/>
 		</xs:sequence>
 		<xs:attribute name="SnippetType" type="xs:string" use="required"/>
-		<xs:attribute name="isExternal" type="xs:boolean" default="false"/>
+		<xs:attribute name="isExternal" type="xs:boolean" use="optional" default="false"/>
 		<!-- This flag is true when the reference is a URL pointing outside of the BCF file-->
 	</xs:complexType>
 	<xs:complexType name="Topic">
@@ -88,20 +88,20 @@
 			</xs:element>
 		</xs:sequence>
 		<xs:attribute name="Guid" type="Guid" use="required"/>
-		<xs:attribute name="TopicType" type="TopicType"/>
-		<xs:attribute name="TopicStatus" type="TopicStatus"/>
+		<xs:attribute name="TopicType" type="TopicType" use="optional"/>
+		<xs:attribute name="TopicStatus" type="TopicStatus" use="optional"/>
 	</xs:complexType>
 	<!-- Reference to a document inside of the topic folder or a url pointing to the web -->
 	<xs:attributeGroup name="DocumentReference">
 		<!-- Guid of the DocumentReference -->
-		<xs:attribute name="Guid" type="Guid"/>
+		<xs:attribute name="Guid" type="Guid" use="optional"/>
 		<!-- A flag that is true when the ReferencedDocument points outside of the BCF file (a URL) -->
-		<xs:attribute name="isExternal" type="xs:boolean" default="false"/>
+		<xs:attribute name="isExternal" type="xs:boolean" default="false" use="optional"/>
 	</xs:attributeGroup>
 	<xs:complexType name="Comment">
 		<xs:sequence>
 			<xs:element name="VerbalStatus" type="TopicStatus" minOccurs="0"/>
-			<xs:element name="Status" type="xs:string" default="Unknown"/>
+			<xs:element name="Status" type="xs:string" minOccurs="0" default="Unknown"/>
 			<xs:element name="Date" type="xs:dateTime"/>
 			<xs:element name="Author" type="UserIdType"/>
 			<xs:element name="Comment" type="xs:string"/>
@@ -152,8 +152,8 @@
 		</xs:restriction>
 	</xs:simpleType>
 	<xs:attributeGroup name="FileAttributes">
-		<xs:attribute name="IfcProject" type="IfcGuid"/>
-		<xs:attribute name="IfcSpatialStructureElement" type="IfcGuid"/>
-		<xs:attribute name="isExternal" type="xs:boolean" default="true"/>
+		<xs:attribute name="IfcProject" use="optional" type="IfcGuid"/>
+		<xs:attribute name="IfcSpatialStructureElement" use="optional" type="IfcGuid"/>
+		<xs:attribute name="isExternal" type="xs:boolean" use="optional" default="true"/>
 	</xs:attributeGroup>
 </xs:schema>
