@@ -7,10 +7,10 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Xml;
-using System.Xml.Linq;
 using System.Xml.Schema;
 using System.Xml.XPath;
 using static bcfTool.Program;
+using vbio = Microsoft.VisualBasic.FileIO;
 
 namespace bcfTool
 {
@@ -18,26 +18,34 @@ namespace bcfTool
 	[Verb("check", HelpText = "check files for issues.")]
 	internal class CheckOptions
 	{
-		[Option('s', "schema", Required = false, HelpText = "check xsd schema compliance.", Default = false)]
+		[Option('s', "schema", Required = false, HelpText = "Check XSD schema compliance against the relevant version.", Default = false)]
 		public bool CheckSchema { get; set; }
 
-		[Option('m', "match", Required = false, HelpText = "check crc match between zipped and unzipped.", Default = false)]
+		[Option('m', "match", Required = false, HelpText = "Check content match between zipped and unzipped versions, ignoring xml newlines.", Default = false)]
 		public bool CheckZipMatch { get; set; }
 
-		[Option('n', "newLines", Required = false, HelpText = "check unzipped folder is split in lines in xmls.", Default = false)]
-		public bool CheckNewLines { get; set; }
+		[Option('z', "rezip", Required = false, SetName = "zip", HelpText = "Recreate mismatching zip files from unzipped folder.", Default = false)]
+		public bool ReZip { get; set; }
 
-		[Option('w', "write-mismatch", Required = false, HelpText = "Writes copy of mismatched file next to unzipped.", Default = false)]
+		[Option('w', "write-mismatch", SetName = "zip", Required = false, HelpText = "Writes a copy of mismatching compressed files next to their unzipped counterpart for comparison.", Default = false)]
 		public bool WriteMismatch { get; set; }
 
-		[Option('u', "uniqueGuid", Default = false, Required = false, HelpText = "Checks that GUID are unique across the fileset.")]
+		[Option('n', "newLines", Required = false, HelpText = "Check that xml content in unzipped folder is not on a single line, for readability.", Default = false)]
+		public bool CheckNewLines { get; set; }
+
+		[Option('u', "uniqueGuid", Default = false, Required = false, HelpText = "Check that GUID are unique across the fileset.")]
 		public bool CheckUniqueGuid { get; set; }
+
+		// images can be fixed with
+		// - (linux):   mogrify -resize 1500x1500\> name.ext
+		// - (windows): mogrify -resize 1500x1500^> name.ext
 
 		[Option('i', "imageSize", Default = false, Required = false, HelpText = "Checks that images aren't too large.")]
 		public bool CheckImageSize { get; set; }
 
-		[Value(0, MetaName = "source",
-			HelpText = "Input source to be processed can be file or folder",
+		[Value(0, 
+			MetaName = "source",
+			HelpText = "Input source to be processed; it can be a file or a folder.",
 			Required = true)]
 		public string InputSource { get; set; }
 
@@ -49,6 +57,10 @@ namespace bcfTool
 
 			if (opts.WriteMismatch)
 				opts.CheckZipMatch = true;
+
+			if (opts.ReZip)
+				opts.CheckZipMatch = true;
+
 			// if no check is required than check all
 			if (
 				!opts.CheckSchema
@@ -63,6 +75,22 @@ namespace bcfTool
 				opts.CheckZipMatch = true;
 				opts.CheckNewLines = true;
 				opts.CheckImageSize = true;
+				Console.WriteLine("Performing all checks.");
+			}
+			else
+			{
+				List<string> checks = new List<string>();
+				if (opts.CheckSchema)
+					checks.Add("Schema");
+				if (opts.CheckUniqueGuid)
+					checks.Add("UniqueGuid");
+				if (opts.CheckZipMatch)
+					checks.Add("ZipMatch");
+				if (opts.CheckNewLines)
+					checks.Add("Readable Xml");
+				if (opts.CheckImageSize)
+					checks.Add("ImageSize");
+				Console.WriteLine($"Checking: {string.Join(",", checks.ToArray())}." );
 			}
 
 			if (Directory.Exists(opts.InputSource))
@@ -138,63 +166,89 @@ namespace bcfTool
 			}
 		}
 
-		private static Status ProcessSingleExample(FileInfo fileInfo, CheckInfo c)
+		private static Status ProcessSingleExample(FileInfo zippedFileInfo, CheckInfo c)
 		{
-			c.currentFile = fileInfo;
-			var dirPath = Path.Combine(fileInfo.DirectoryName, "unzipped");
-			var unzippedDir = new DirectoryInfo(dirPath);
-			if (!unzippedDir.Exists)
+			c.currentFile = zippedFileInfo;
+			var dirPath = Path.Combine(zippedFileInfo.DirectoryName, "unzipped");
+			var unzippedDirInfo = new DirectoryInfo(dirPath);
+			if (!unzippedDirInfo.Exists)
 			{
-				Console.WriteLine($"Error\t{c.CleanName(fileInfo)}\tUnzipped folder not found.");
+				Console.WriteLine($"Error\t{c.CleanName(zippedFileInfo)}\tUnzipped folder not found.");
 			}
-
 			if (c.Options.CheckZipMatch)
 			{
-				var zip = ZipFile.OpenRead(fileInfo.FullName);
-				foreach (var entry in zip.Entries)
+				bool rezip = false;
+				using (var zip = ZipFile.OpenRead(zippedFileInfo.FullName))
 				{
-					if (Path.EndsInDirectorySeparator(entry.FullName))
-						continue;
-					var onDisk = Path.Combine(unzippedDir.FullName, entry.FullName);
-					var onDiskFile = new FileInfo(onDisk);
-					if (!onDiskFile.Exists)
+					foreach (var entry in zip.Entries)
 					{
-						Console.WriteLine($"Error\t{c.CleanName(onDiskFile)}\tUncompressed file not found.");
-						c.Status |= Status.ContentMismatch;
-					}
-					else
-					{
-						var dskCont = File.ReadAllBytes(onDiskFile.FullName);
-						var zipCont = ReadFully(entry.Open());
-						var dskCrc = Crc32Algorithm.Compute(dskCont);
-						var zipCrc = Crc32Algorithm.Compute(zipCont);
-						var zipCrcFile = entry.Crc32;
-
-						if (dskCrc != zipCrc)
+						if (Path.EndsInDirectorySeparator(entry.FullName))
+							continue;
+						var onDisk = Path.Combine(unzippedDirInfo.FullName, entry.FullName);
+						var onDiskFile = new FileInfo(onDisk);
+						if (!onDiskFile.Exists)
 						{
-							// might be the same with different line endings
-							System.Text.UTF8Encoding enc = new System.Text.UTF8Encoding();
-							string dskS = Clean(enc.GetString(dskCont));
-							string zipS = Clean(enc.GetString(zipCont));
-							if (dskS != zipS)
+							Console.WriteLine($"MISMATCH\t{c.CleanName(onDiskFile)}\tUncompressed file not found.");
+							c.Status |= Status.ContentMismatch;
+							if (c.Options.WriteMismatch)
 							{
-								Console.WriteLine($"Error\t{c.CleanName(onDiskFile)}\tCompressed/Uncompressed mismatch.");
-								c.Status |= Status.ContentMismatch;
-								if (c.Options.WriteMismatch)
+								var zipCont = ReadFully(entry.Open());
+								var mismatchName = onDiskFile.FullName;
+								File.WriteAllBytes(mismatchName, zipCont);
+								Console.WriteLine($"CHANGE\t{c.CleanName(onDiskFile)}\tFile written from zip.");
+							}
+							if (c.Options.ReZip)
+							{
+								rezip = true;
+								break;
+							}
+						}
+						else
+						{
+							var dskCont = File.ReadAllBytes(onDiskFile.FullName);
+							var zipCont = ReadFully(entry.Open());
+							var dskCrc = Crc32Algorithm.Compute(dskCont);
+							var zipCrc = Crc32Algorithm.Compute(zipCont);
+							var zipCrcFile = entry.Crc32;
+
+							if (dskCrc != zipCrc)
+							{
+								// might be the same with different line endings
+								System.Text.UTF8Encoding enc = new System.Text.UTF8Encoding();
+								string dskS = Clean(enc.GetString(dskCont));
+								string zipS = Clean(enc.GetString(zipCont));
+								if (dskS != zipS)
 								{
-									var mismatchName = onDiskFile.FullName + ".zipMismatch";
-									File.WriteAllBytes(mismatchName, zipCont);
+									Console.WriteLine($"MISMATCH\t{c.CleanName(onDiskFile)}\tCompressed/Uncompressed mismatch.");
+									c.Status |= Status.ContentMismatch;
+									if (c.Options.WriteMismatch)
+									{
+										var mismatchName = onDiskFile.FullName + ".zipMismatch";
+										File.WriteAllBytes(mismatchName, zipCont);
+										Console.WriteLine($"CHANGE\t{c.CleanName(onDiskFile)}.zipMismatch\tFile written from zip for comparison.");
+									}
+									if (c.Options.ReZip)
+									{
+										rezip = true;
+										break;
+									}
 								}
 							}
 						}
 					}
 				}
+				if (rezip)
+				{
+					vbio.FileSystem.DeleteFile(zippedFileInfo.FullName, vbio.UIOption.OnlyErrorDialogs, vbio.RecycleOption.SendToRecycleBin);
+					ZipFile.CreateFromDirectory(unzippedDirInfo.FullName, zippedFileInfo.FullName, CompressionLevel.Optimal, false);
+					Console.WriteLine($"CHANGE\t{c.CleanName(zippedFileInfo)}\tFile recreated from folder.");
+				}
 			}
 
-			var versionfile = Path.Combine(unzippedDir.FullName, "bcf.version");
+			var versionfile = Path.Combine(unzippedDirInfo.FullName, "bcf.version");
 			if (!File.Exists(versionfile))
 			{
-				Console.WriteLine($"Error\t{c.CleanName(fileInfo)}\tversion file missing");
+				Console.WriteLine($"VERSION\t{c.CleanName(zippedFileInfo)}\tversion file missing, further checks stopped.");
 				return Status.NotFoundError;
 			}
 			var version = "";
@@ -207,32 +261,31 @@ namespace bcfTool
 				version = "v2.0";
 			if (version == "")
 			{
-				Console.WriteLine($"Error\t{c.CleanName(fileInfo)}\tversion not resolved");
+				Console.WriteLine($"VERSION\t{c.CleanName(zippedFileInfo)}\tversion not resolved, further checks stopped.");
 				return Status.ContentError;
 			}
 
 			if (c.Options.CheckSchema)
 			{
-				CheckSchemaCompliance(c, unzippedDir, version, "bcf", $"schemas/{version}/markup.xsd");
-				CheckSchemaCompliance(c, unzippedDir, version, "bcfv", $"schemas/{version}/visinfo.xsd");
-				CheckSchemaCompliance(c, unzippedDir, version, "bcfp", $"schemas/{version}/project.xsd");
+				CheckSchemaCompliance(c, unzippedDirInfo, version, "bcf", $"schemas/{version}/markup.xsd");
+				CheckSchemaCompliance(c, unzippedDirInfo, version, "bcfv", $"schemas/{version}/visinfo.xsd");
+				CheckSchemaCompliance(c, unzippedDirInfo, version, "bcfp", $"schemas/{version}/project.xsd");
 			}
 			if (c.Options.CheckUniqueGuid)
 			{
-				CheckUniqueIDs(c, unzippedDir, version, "bcf");
-				CheckUniqueIDs(c, unzippedDir, version, "bcfv");
+				CheckUniqueIDs(c, unzippedDirInfo, version, "bcf");
+				CheckUniqueIDs(c, unzippedDirInfo, version, "bcfv");
 			}
 			if (c.Options.CheckNewLines)
 			{
-				CheckMultiLine(c, unzippedDir, "bcf");
-				CheckMultiLine(c, unzippedDir, "bcfv");
-				CheckMultiLine(c, unzippedDir, "bcfp");
+				CheckMultiLine(c, unzippedDirInfo, "bcf");
+				CheckMultiLine(c, unzippedDirInfo, "bcfv");
+				CheckMultiLine(c, unzippedDirInfo, "bcfp");
 			}
 			if (c.Options.CheckImageSize)
 			{
-				CheckImageSizeIsOk(c, unzippedDir);
+				CheckImageSizeIsOk(c, unzippedDirInfo);
 			}
-
 
 			return Status.Ok;
 		}
@@ -279,8 +332,6 @@ namespace bcfTool
 			return v;
 		}
 
-
-
 		private static void CheckUniqueIDs(CheckInfo c, DirectoryInfo unzippedDir, string version, string fileExtension)
 		{
 			var markupFiles = unzippedDir.GetFiles($"*.{fileExtension}", SearchOption.AllDirectories);
@@ -303,7 +354,7 @@ namespace bcfTool
 						var guid = iterator1.Current.Value;
 						if (c.guids.ContainsKey(guid))
 						{
-							Console.WriteLine($"GUID '{guid}' duplicated\t{c.CleanName(markupFile)}\tAlso Found in {c.guids[guid]}");
+							Console.WriteLine($"GUID\t{c.CleanName(markupFile)}\t'Guid {guid}' also encountered in {c.guids[guid]}");
 							c.Status |= Status.ContentError;
 						}
 						else
@@ -312,7 +363,6 @@ namespace bcfTool
 						}
 					}
 				}
-
 			}
 		}
 		private static void CheckSchemaCompliance(CheckInfo c, DirectoryInfo unzippedDir, string version, string fileExtension, string requiredSchema)
