@@ -33,7 +33,7 @@ namespace bcfTool
 		[Option('n', "newLines", Required = false, HelpText = "Check that xml content in unzipped folder is not on a single line, for readability.", Default = false)]
 		public bool CheckNewLines { get; set; }
 
-		[Option('u', "uniqueGuid", Default = false, Required = false, HelpText = "Check that GUID are unique across the fileset.")]
+		[Option('u', "uniqueGuid", Default = false, Required = false, HelpText = "Check GUID for uniqueness across the fileset and capitalisation.")]
 		public bool CheckUniqueGuid { get; set; }
 
 		[Option('q', "qualityAssurance", Default = false, Required = false, HelpText = "Perform the checks that are meaningful for the BCF-XML official repository.")]
@@ -112,7 +112,7 @@ namespace bcfTool
 			{
 				var t = new FileInfo(opts.InputSource);
 				opts.ResolvedSource = t;
-				var ret = ProcessSingleExample(t, new CheckInfo(opts));
+				var ret = ProcessSingleFile(t, new CheckInfo(opts));
 				Console.WriteLine($"Completed with status: {ret}.");
 				return ret;
 			}
@@ -143,7 +143,7 @@ namespace bcfTool
 				);
 			foreach (var bcf in allBcfs.OrderBy(x => x.FullName))
 			{
-				ProcessSingleExample(bcf, c);
+				ProcessSingleFile(bcf, c);
 			}
 			return c.Status;
 		}
@@ -167,14 +167,19 @@ namespace bcfTool
 
 			public void validationReporter(object sender, ValidationEventArgs e)
 			{
+				var location = "";
+				if (sender is IXmlLineInfo rdr)
+				{
+					location = $"Line: {rdr.LineNumber}, Position: {rdr.LinePosition}, ";
+				}
 				if (e.Severity == XmlSeverityType.Warning)
 				{
-					Console.WriteLine($"XML WARNING\t{validatingFile}\t{e.Message}");
+					Console.WriteLine($"XML WARNING\t{validatingFile}\t{location}{e.Message}");
 					Status |= Status.ContentError;
 				}
 				else if (e.Severity == XmlSeverityType.Error)
 				{
-					Console.WriteLine($"XML ERROR\t{validatingFile}\t{e.Message}");
+					Console.WriteLine($"XML ERROR\t{validatingFile}\t{location}{e.Message}");
 					Status |= Status.ContentError;
 				}
 			}
@@ -185,12 +190,12 @@ namespace bcfTool
 			}
 		}
 
-		private static Status ProcessSingleExample(FileInfo zippedFileInfo, CheckInfo c)
+		private static Status ProcessSingleFile(FileInfo zippedFileInfo, CheckInfo c)
 		{
 			BcfSource source = new ZippedFileSource(zippedFileInfo);
 			var dirPath = Path.Combine(zippedFileInfo.DirectoryName, "unzipped");
 			var unzippedDirInfo = new DirectoryInfo(dirPath);
-			if (unzippedDirInfo.Exists && c.Options.CheckZipMatch)
+			if (unzippedDirInfo.Exists)
 			{
 				source = new FolderSource(unzippedDirInfo);
 			}
@@ -365,6 +370,12 @@ namespace bcfTool
 					while (iterator1.MoveNext())
 					{
 						var guid = iterator1.Current.Value;
+						var lower = guid.ToLowerInvariant(); 
+						if (lower != guid)
+						{
+							Console.WriteLine($"GUID\t{c.CleanName(markupFile)}\t'Guid {guid}' is not lowercase.");
+							c.Status |= Status.ContentError;
+						}
 						if (c.guids.ContainsKey(guid))
 						{
 							Console.WriteLine($"GUID\t{c.CleanName(markupFile)}\t'Guid {guid}' also encountered in {c.guids[guid]}");
