@@ -116,7 +116,11 @@ namespace bcfTool
 		private static Status ProcessExamplesFolder(DirectoryInfo directoryInfo, CheckInfo c)
 		{
 			var allBcfs = directoryInfo.GetFiles("*.bcf", SearchOption.AllDirectories)
-				.Where(x => !x.FullName.Contains("unzipped", StringComparison.InvariantCultureIgnoreCase))
+				.Where(x => 
+					!x.FullName.Contains("unzipped", StringComparison.InvariantCultureIgnoreCase)
+					&&
+					!x.FullName.EndsWith("markup.bcf")
+					)
 				.ToList();
 			allBcfs.AddRange(
 				directoryInfo.GetFiles("*.bcfzip", SearchOption.AllDirectories)
@@ -173,7 +177,7 @@ namespace bcfTool
 			var unzippedDirInfo = new DirectoryInfo(dirPath);
 			if (!unzippedDirInfo.Exists)
 			{
-				Console.WriteLine($"Error\t{c.CleanName(zippedFileInfo)}\tUnzipped folder not found.");
+				Console.WriteLine($"MISMATCH\t{c.CleanName(zippedFileInfo)}\tUnzipped folder not found.");
 			}
 			if (c.Options.CheckZipMatch)
 			{
