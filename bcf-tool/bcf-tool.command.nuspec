@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+	<metadata>
+		<id>bcf-tool.CommandLine</id>
+		<authors>Claudio Benghi</authors>
+		<description>CLI deployment of the he bcf-tool</description>
+		<projectUrl>https://github.com/CBenghi/bcf-tool/</projectUrl>
+		<version>$version$</version>
+		<iconUrl>https://raw.githubusercontent.com/CBenghi/bcf-tool/main/graphics/icon.png</iconUrl>
+		<releaseNotes>$releaseNotes$</releaseNotes>
+		<copyright>$copyright$</copyright>
+	</metadata>
+	<files>
+		<file src="$publishdir$\netcoreapp3.1\**\*" target="tools/netcoreapp3.1/" />
+	</files>
+</package>

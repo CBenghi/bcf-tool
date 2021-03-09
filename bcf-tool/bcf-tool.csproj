@@ -1,8 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <TargetFrameworks>netcoreapp3.1</TargetFrameworks>
     <RootNamespace>BcfTool</RootNamespace>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
@@ -22,7 +21,28 @@ Features are also available to check the BCF repository for the expected 'unzipp
     <PackageReleaseNotes>First implementation.</PackageReleaseNotes>
     <Version>1.0.2</Version>
   </PropertyGroup>
+	
+  <PropertyGroup>
+	<NuspecFile>bcf-tool.command.nuspec</NuspecFile>
+	<NoPackageAnalysis>true</NoPackageAnalysis>
+	<IntermediatePackDir>$(MSBuildProjectDirectory)/bin/$(Configuration)/publish/</IntermediatePackDir>
+	<PublishDir>$(IntermediatePackDir)$(TargetFramework)/</PublishDir>
+	<NuspecProperties>
+		publishDir=$([MSBuild]::NormalizeDirectory($(IntermediatePackDir)));
+		version=$(Version);
+		releaseNotes=$(PackageReleaseNotes);
+		copyright=$(Copyright)
+	</NuspecProperties>
+  </PropertyGroup>
 
+  <!-- Executes /t:Publish for all target frameworks before packing-->
+  <Target Name="PublishAll" BeforeTargets="GenerateNuspec">
+    <ItemGroup>
+      <_TargetFramework Include="$(TargetFrameworks)" />
+    </ItemGroup>
+    <MSBuild Projects="$(MSBuildProjectFullPath)" Targets="Publish" Properties="TargetFramework=%(_TargetFramework.Identity)" />
+  </Target>
+		
   <ItemGroup>
     <PackageReference Include="CommandLineParser" Version="2.8.0" />
     <PackageReference Include="Crc32.NET" Version="1.2.0" />
@@ -85,6 +105,7 @@ Features are also available to check the BCF repository for the expected 'unzipp
     <None Include="..\graphics\icon.png">
       <Pack>True</Pack>
       <PackagePath></PackagePath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
 
