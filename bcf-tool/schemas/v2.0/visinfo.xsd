@@ -88,7 +88,8 @@
 	<xs:simpleType name="FieldOfView">
 		<xs:restriction base="xs:double">
 			<xs:minInclusive value="45"/>
-			<xs:maxInclusive value="60"/>
+			<!-- max inclusive is formally defined in the repository as 60, but with a warning to accept broader values -->
+			<xs:maxInclusive value="90"/>
 		</xs:restriction>
 	</xs:simpleType>
 	<xs:complexType name="Component">
@@ -107,7 +108,7 @@
 		<xs:simpleType>
 			<xs:restriction base="xs:normalizedString">
 				<xs:length value="22"/>
-				<xs:pattern value="[0-9,A-Z,a-z,_$]*"/>
+				<xs:pattern value="[0-9A-Za-z_$]*"/>
 			</xs:restriction>
 		</xs:simpleType>
 	</xs:attribute>

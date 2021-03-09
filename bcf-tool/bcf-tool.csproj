@@ -15,11 +15,12 @@ buildingSmart Building Collaboration Format files can be checked against their r
 Features are also available to check the BCF repository for the expected 'unzipped' folder.</Description>
     <PackageIcon>icon.png</PackageIcon>
     <PackageTags>bcf, buildingSmart</PackageTags>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyVersion>1.0.2.0</AssemblyVersion>
+    <FileVersion>1.0.2.0</FileVersion>
     <RepositoryUrl>https://github.com/CBenghi/bcf-tool.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReleaseNotes>First implementation.</PackageReleaseNotes>
+    <Version>1.0.2</Version>
   </PropertyGroup>
 
   <ItemGroup>

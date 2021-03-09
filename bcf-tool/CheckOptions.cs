@@ -33,8 +33,11 @@ namespace bcfTool
 		[Option('n', "newLines", Required = false, HelpText = "Check that xml content in unzipped folder is not on a single line, for readability.", Default = false)]
 		public bool CheckNewLines { get; set; }
 
-		[Option('u', "uniqueGuid", Default = false, Required = false, HelpText = "Check GUID for uniqueness across the fileset and capitalisation.")]
+		[Option('g', "Guid", Default = false, Required = false, HelpText = "Check GUID for uniqueness across the fileset, capitalisation and reference.")]
 		public bool CheckUniqueGuid { get; set; }
+
+		[Option('f', "files", Default = false, Required = false, HelpText = "Check expected content files are available.")]
+		public bool CheckFileContents { get; set; }
 
 		[Option('q', "qualityAssurance", Default = false, Required = false, HelpText = "Perform the checks that are meaningful for the BCF-XML official repository.")]
 		public bool QualityAssurance { get; set; }
@@ -79,6 +82,7 @@ namespace bcfTool
 				&& !opts.CheckZipMatch
 				&& !opts.CheckNewLines
 				&& !opts.CheckImageSize
+				&& !opts.CheckFileContents
 				)
 			{
 				SetBasicChecks(opts);
@@ -97,6 +101,8 @@ namespace bcfTool
 					checks.Add("Readable Xml");
 				if (opts.CheckImageSize)
 					checks.Add("ImageSize");
+				if (opts.CheckFileContents)
+					checks.Add("File contents");
 				Console.WriteLine($"Checking: {string.Join(",", checks.ToArray())}." );
 			}
 
@@ -125,6 +131,7 @@ namespace bcfTool
 			opts.CheckSchema = true;
 			opts.CheckUniqueGuid = true;
 			opts.CheckImageSize = true;
+			opts.CheckFileContents = true;
 		}
 
 		private static Status ProcessExamplesFolder(DirectoryInfo directoryInfo, CheckInfo c)
@@ -168,23 +175,26 @@ namespace bcfTool
 			public void validationReporter(object sender, ValidationEventArgs e)
 			{
 				var location = "";
+				var newguid = "";
+				if (e.Message.Contains("'Guid' is missing"))
+					newguid = $"You can use: '{Guid.NewGuid()}' instead.";
 				if (sender is IXmlLineInfo rdr)
 				{
 					location = $"Line: {rdr.LineNumber}, Position: {rdr.LinePosition}, ";
 				}
 				if (e.Severity == XmlSeverityType.Warning)
 				{
-					Console.WriteLine($"XML WARNING\t{validatingFile}\t{location}{e.Message}");
+					Console.WriteLine($"XML WARNING\t{validatingFile}\t{location}{e.Message}{newguid}");
 					Status |= Status.ContentError;
 				}
 				else if (e.Severity == XmlSeverityType.Error)
 				{
-					Console.WriteLine($"XML ERROR\t{validatingFile}\t{location}{e.Message}");
+					Console.WriteLine($"XML ERROR\t{validatingFile}\t{location}{e.Message}{newguid}");
 					Status |= Status.ContentError;
 				}
 			}
 
-			public string CleanName(FileInfo f)
+			public string CleanName(FileSystemInfo f)
 			{
 				return Path.GetRelativePath(Options.ResolvedSource.FullName, f.FullName);
 			}
@@ -202,6 +212,7 @@ namespace bcfTool
 			else if (c.Options.CheckZipMatch)
 			{
 				Console.WriteLine($"MISMATCH\t{c.CleanName(zippedFileInfo)}\tUnzipped folder not found.");
+				c.Status |= Status.ContentError;
 			}
 
 			// this checks the match between zipped and unzipped
@@ -293,6 +304,11 @@ namespace bcfTool
 				CheckUniqueIDs(c, unzippedDirInfo, version, "bcf");
 				CheckUniqueIDs(c, unzippedDirInfo, version, "bcfv");
 			}
+			if (c.Options.CheckFileContents)
+			{
+				CheckContent(c, source, version, new List<string>() { "/Markup/Viewpoints/Viewpoint", "/Markup/Viewpoints/Snapshot", }, ".bcf");
+				CheckContent(c, source, version, new List<string>() { "/VisualizationInfo/Bitmap/Reference" }, ".bcfv");
+			}
 			// no need to check new lines on compressed files
 			if (c.Options.CheckNewLines && source is FolderSource)
 			{
@@ -306,6 +322,37 @@ namespace bcfTool
 			}
 
 			return Status.Ok;
+		}
+
+		private static void CheckContent(CheckInfo c, BcfSource source, string version, List<string> contents, string filter)
+		{
+			var markupFiles = source.GetLocalNames(filter);
+			foreach (var markupFile in markupFiles)
+			{
+				var locP = Path.GetDirectoryName(markupFile);
+				var validatingFile = c.CleanName(new FileInfo(Path.Combine(source.FullName, markupFile)));
+				var docNav = new XPathDocument(source.GetStream(markupFile));
+				var nav = docNav.CreateNavigator();
+				foreach (var content in contents)
+				{
+					var iterator1 = nav.Select(content);
+					while (iterator1.MoveNext())
+					{
+						string loc = "";
+						if (iterator1.Current is IXmlLineInfo li)
+						{
+							loc = $", Line: {li.LinePosition}, Position: {li.LinePosition}";
+						}
+						var name = iterator1.Current.Value;
+						var mappedName = Path.Combine(locP, name);
+						if (source.GetLocalNames(mappedName).Count() != 1)
+						{
+							Console.WriteLine($"CONTENT ERROR\t{validatingFile}\tMissing {mappedName}{loc}.");
+							c.Status |= Status.ContentError;
+						}
+					}
+				}
+			}
 		}
 
 		private static void CheckImageSizeIsOk(CheckInfo c, DirectoryInfo unzippedDir)
@@ -352,16 +399,34 @@ namespace bcfTool
 
 		private static void CheckUniqueIDs(CheckInfo c, DirectoryInfo unzippedDir, string version, string fileExtension)
 		{
+			var subdirs = unzippedDir.GetDirectories();
+			foreach (var subdir in subdirs)
+			{
+				if (subdir.Name != subdir.Name.ToLower())
+				{
+					Console.WriteLine($"GUID\t{c.CleanName(subdir)}\tFolder '{subdir.Name}' is not lowercase.");
+					c.Status |= Status.ContentError;
+				}
+			}
+
 			var markupFiles = unzippedDir.GetFiles($"*.{fileExtension}", SearchOption.AllDirectories);
 
 			List<string> uniques = new List<string>()
 			{
 				"/*/Topic/@Guid",
-				"/*/Comment/@Guid"
+				"/*/Comment/@Guid",
+				"/*/Viewpoints/@Guid"
+			};
+
+			List<string> refs = new List<string>()
+			{
+				"/*/Comment/Topic/@Guid",
+				"/Markup/Topic/RelatedTopic/@Guid",
 			};
 
 			foreach (var markupFile in markupFiles)
 			{
+				var thisGuids = new HashSet<string>();
 				var docNav = new XPathDocument(markupFile.FullName);
 				var nav = docNav.CreateNavigator();
 				foreach (var uniquePath in uniques)
@@ -370,20 +435,47 @@ namespace bcfTool
 					while (iterator1.MoveNext())
 					{
 						var guid = iterator1.Current.Value;
-						var lower = guid.ToLowerInvariant(); 
+						var lower = guid.ToLowerInvariant();
 						if (lower != guid)
 						{
-							Console.WriteLine($"GUID\t{c.CleanName(markupFile)}\t'Guid {guid}' is not lowercase.");
+							Console.WriteLine($"GUID\t{c.CleanName(markupFile)}\tGuid '{guid}' is not lowercase.");
 							c.Status |= Status.ContentError;
 						}
 						if (c.guids.ContainsKey(guid))
 						{
-							Console.WriteLine($"GUID\t{c.CleanName(markupFile)}\t'Guid {guid}' also encountered in {c.guids[guid]}");
+							var n = Guid.NewGuid().ToString();
+							Console.WriteLine($"GUID\t{c.CleanName(markupFile)}\tGuid '{guid}' also encountered in {c.guids[guid]}. You can use {n}, instead.");
 							c.Status |= Status.ContentError;
 						}
 						else
 						{
 							c.guids.Add(guid, c.CleanName(markupFile));
+							thisGuids.Add(guid);
+						}
+					}
+				}
+				foreach (var uniquePath in refs)
+				{
+					var iterator1 = nav.Select(uniquePath);
+					while (iterator1.MoveNext())
+					{
+						var guid = iterator1.Current.Value;
+						var lower = guid.ToLowerInvariant();
+						string location = "";
+						if (iterator1.Current is IXmlLineInfo li)
+						{
+							location = $", Line: {li.LineNumber}, Position: {li.LinePosition}";
+						}
+						if (lower != guid)
+						{
+							Console.WriteLine($"GUID\t{c.CleanName(markupFile)}\tGuid '{guid}' is not lowercase{location}.");
+							c.Status |= Status.ContentError;
+						}
+						// ensure it's found
+						if (!thisGuids.Contains(guid))
+						{
+							Console.WriteLine($"GUID\t{c.CleanName(markupFile)}\tReference guid '{guid}' is not found{location}.");
+							c.Status |= Status.ContentError;
 						}
 					}
 				}

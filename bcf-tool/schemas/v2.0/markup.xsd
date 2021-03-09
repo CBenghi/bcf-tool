@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Mit XMLSpy v2011 rel. 3 (http://www.altova.com) von Klaus Linhard (IABI e.V.) bearbeitet -->
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
 	<xs:element name="Markup">
 		<xs:complexType>
 			<xs:sequence>
-				<xs:element name="Header" type="Header"/>
-				<xs:element name="Topic" type="Topic"/>
+				<!-- 
+					header was formally required in the schema, but de facto missing from many of the sample files.
+					Since it becomes optional in future releases too, we've made it optional here
+				-->
+				<xs:element name="Header" type="Header" minOccurs="0" />
+				<xs:element name="Topic" type="Topic" minOccurs="1"/>
 				<xs:element name="Comment" type="Comment" minOccurs="0" maxOccurs="unbounded"/>
-				<!-- ISG Jira issue BCF-9. Add support for several viewpoints and snapshots per issue -->
 				<xs:element name="Viewpoints" type="ViewPoint" minOccurs="0" maxOccurs="unbounded"/>
 			</xs:sequence>
 		</xs:complexType>
@@ -27,7 +29,6 @@
 			</xs:element>
 		</xs:sequence>
 	</xs:complexType>
-	<!-- ISG Jira issue BCF-9. Add support for several viewpoints and snapshots per issue -->
 	<xs:complexType name="ViewPoint">
 		<xs:sequence>
 			<!-- viewpoint file (xml) -->
@@ -42,10 +43,10 @@
 	<xs:complexType name="BimSnippet">
 		<xs:sequence>
 			<!--
-        Name of the file in the topic folder containing the snippet or a URL.
-         E.G.- Expresscode containing p.e Issue, Request
-        // Maybe some header infos ?? // IfcEntites // Geometry 
-         -->
+			Name of the file in the topic folder containing the snippet or a URL.
+			E.G.- Expresscode containing p.e Issue, Request
+			// Maybe some header infos ?? // IfcEntites // Geometry 
+			-->
 			<!-- Reference (name) to the snippet file -->
 			<xs:element name="Reference" type="xs:string" minOccurs="1" maxOccurs="1"/>
 			<xs:element name="ReferenceSchema" type="xs:string" minOccurs="1" maxOccurs="1"/>
@@ -59,7 +60,6 @@
 			<xs:element name="ReferenceLink" type="xs:string" minOccurs="0"/>
 			<xs:element name="Title" type="xs:string"/>
 			<xs:element name="Priority" type="Priority" minOccurs="0"/>
-			<!-- ISG Jira issue BCF-8 Add a way save order the topics -->
 			<xs:element name="Index" type="xs:integer" minOccurs="0" maxOccurs="1"/>
 			<xs:element name="Labels" type="TopicLabel" minOccurs="0" maxOccurs="unbounded"/>
 			<xs:element name="CreationDate" type="xs:dateTime" minOccurs="0"/>
@@ -102,10 +102,10 @@
 		<xs:sequence>
 			<xs:element name="VerbalStatus" type="TopicStatus" minOccurs="0"/>
 			<xs:element name="Status" type="xs:string" minOccurs="0" default="Unknown"/>
-			<xs:element name="Date" type="xs:dateTime"/>
-			<xs:element name="Author" type="UserIdType"/>
-			<xs:element name="Comment" type="xs:string"/>
-			<xs:element name="Topic">
+			<xs:element name="Date" type="xs:dateTime" minOccurs="1" />
+			<xs:element name="Author" type="UserIdType" minOccurs="1"/>
+			<xs:element name="Comment" type="xs:string"  minOccurs="1"/>
+			<xs:element name="Topic" minOccurs="1">
 				<xs:complexType>
 					<xs:attribute name="Guid" type="Guid" use="required"/>
 				</xs:complexType>
@@ -148,7 +148,7 @@
 	<xs:simpleType name="IfcGuid">
 		<xs:restriction base="xs:string">
 			<xs:length value="22"/>
-			<xs:pattern value="[0-9,A-Z,a-z,_$]*"/>
+			<xs:pattern value="[0-9A-Za-z_$]*"/>
 		</xs:restriction>
 	</xs:simpleType>
 	<xs:attributeGroup name="FileAttributes">
