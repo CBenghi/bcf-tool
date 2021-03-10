@@ -299,7 +299,7 @@ namespace bcfTool
 				CheckSchemaCompliance(c, source, version, "bcfv", $"schemas/{version}/visinfo.xsd");
 				CheckSchemaCompliance(c, source, version, "bcfp", $"schemas/{version}/project.xsd");
 			}
-			if (c.Options.CheckUniqueGuid)
+			if (c.Options.CheckUniqueGuid && source is FolderSource)
 			{
 				CheckUniqueIDs(c, unzippedDirInfo, version, "bcf");
 				CheckUniqueIDs(c, unzippedDirInfo, version, "bcfv");
@@ -316,9 +316,16 @@ namespace bcfTool
 				CheckMultiLine(c, unzippedDirInfo, "bcfv");
 				CheckMultiLine(c, unzippedDirInfo, "bcfp");
 			}
-			if (c.Options.CheckImageSize)
+			if (c.Options.CheckImageSize && source is FolderSource)
 			{
-				CheckImageSizeIsOk(c, unzippedDirInfo);
+				try
+				{
+					CheckImageSizeIsOk(c, unzippedDirInfo);
+				}
+				catch (Exception ex)
+				{
+					Console.WriteLine($"INFO\t{c.CleanName(zippedFileInfo)}\tCannot check image files, {ex.Message}");
+				}
 			}
 
 			return Status.Ok;
