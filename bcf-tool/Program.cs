@@ -30,6 +30,7 @@ namespace bcfTool
 			NotFoundError = 4,
 			ContentError = 8,
 			ContentMismatch = 16,
+			XsdSchemaError = 32,
 		}
 
 		private static Status RunCommitAndReturnExitCode(ZipOptions opts)

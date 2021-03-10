@@ -36,6 +36,9 @@ namespace bcfTool
 		[Option('g', "Guid", Default = false, Required = false, HelpText = "Check GUID for uniqueness across the fileset, capitalisation and reference.")]
 		public bool CheckUniqueGuid { get; set; }
 
+		[Option('x', "xsd", Default = false, Required = false, HelpText = "Check validity of the xsd schemas in the expected relative folder.")]
+		public bool CheckSchemaDefinition { get; set; }
+
 		[Option('f', "files", Default = false, Required = false, HelpText = "Check expected content files are available.")]
 		public bool CheckFileContents { get; set; }
 
@@ -73,6 +76,7 @@ namespace bcfTool
 				SetBasicChecks(opts);
 				opts.CheckZipMatch = true;
 				opts.CheckNewLines = true;
+				opts.CheckSchemaDefinition = true;
 			}
 
 			// if no check is required than check default
@@ -83,6 +87,7 @@ namespace bcfTool
 				&& !opts.CheckNewLines
 				&& !opts.CheckImageSize
 				&& !opts.CheckFileContents
+				&& !opts.CheckSchemaDefinition
 				)
 			{
 				SetBasicChecks(opts);
@@ -103,6 +108,8 @@ namespace bcfTool
 					checks.Add("ImageSize");
 				if (opts.CheckFileContents)
 					checks.Add("File contents");
+				if (opts.CheckSchemaDefinition)
+					checks.Add("Xsd schemas correctness");
 				Console.WriteLine($"Checking: {string.Join(",", checks.ToArray())}." );
 			}
 
@@ -152,6 +159,40 @@ namespace bcfTool
 			{
 				ProcessSingleFile(bcf, c);
 			}
+			if (c.Options.CheckSchemaDefinition)
+			{
+				var enumOptions = new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive };
+				var schemasfolder = directoryInfo.Parent.GetDirectories("schemas", enumOptions).FirstOrDefault();
+				if (schemasfolder == null)
+				{
+					Console.WriteLine("XSD\t\tSchemas folder missing.");
+					c.Status |= Status.XsdSchemaError;
+				}
+				else
+				{
+					XmlReaderSettings rSettings = new XmlReaderSettings();
+					foreach (var schemaFile in schemasfolder.GetFiles("*.xsd", enumOptions))
+					{
+						try
+						{
+							rSettings.Schemas.Add("", schemaFile.FullName);
+						}
+						catch (XmlSchemaException ex)
+						{
+							var rel = Path.GetRelativePath(c.Options.ResolvedSource.FullName, schemaFile.FullName);
+							Console.WriteLine($"XSD\t{rel}\tSchema error: {ex.Message} at line {ex.LineNumber}, position {ex.LinePosition}.");
+							c.Status |= Status.XsdSchemaError;
+						}
+						catch (Exception ex)
+						{
+							var rel = Path.GetRelativePath(c.Options.ResolvedSource.FullName, schemaFile.FullName);
+							Console.WriteLine($"XSD\t{rel}\tSchema error: {ex.Message}.");
+							c.Status |= Status.XsdSchemaError;
+						}
+					}
+				}
+			}
+			
 			return c.Status;
 		}
 
@@ -306,6 +347,7 @@ namespace bcfTool
 			}
 			if (c.Options.CheckFileContents)
 			{
+				// todo: see the PDFFile example to determine what to do with <ReferencedDocument>
 				CheckContent(c, source, version, new List<string>() { "/Markup/Viewpoints/Viewpoint", "/Markup/Viewpoints/Snapshot", }, ".bcf");
 				CheckContent(c, source, version, new List<string>() { "/VisualizationInfo/Bitmap/Reference" }, ".bcfv");
 			}
@@ -431,9 +473,11 @@ namespace bcfTool
 				"/Markup/Topic/RelatedTopic/@Guid",
 			};
 
+			var thisGuids = new HashSet<string>();
+			var reqGuids = new Dictionary<string, List<string>>(); // each required guid with a list of sources requiring it
+
 			foreach (var markupFile in markupFiles)
 			{
-				var thisGuids = new HashSet<string>();
 				var docNav = new XPathDocument(markupFile.FullName);
 				var nav = docNav.CreateNavigator();
 				foreach (var uniquePath in uniques)
@@ -478,15 +522,35 @@ namespace bcfTool
 							Console.WriteLine($"GUID\t{c.CleanName(markupFile)}\tGuid '{guid}' is not lowercase{location}.");
 							c.Status |= Status.ContentError;
 						}
-						// ensure it's found
-						if (!thisGuids.Contains(guid))
-						{
-							Console.WriteLine($"GUID\t{c.CleanName(markupFile)}\tReference guid '{guid}' is not found{location}.");
-							c.Status |= Status.ContentError;
-						}
+
+						// to ensure it's found, build a list of reqs and references... the error message is only prepared here, not thrown
+						//
+						var errmsg = $"GUID\t{c.CleanName(markupFile)}\tReference guid '{guid}' is not found{location}.";
+						if (reqGuids.TryGetValue(guid, out var reqrefs))
+							reqrefs.Add(errmsg);
+						else
+							reqGuids.Add(guid, new List<string>() { errmsg });
 					}
 				}
 			}
+			// check that all refs are present
+			//
+			foreach (var reqGuid in reqGuids.Keys)
+			{
+				if (!thisGuids.Contains(reqGuid)
+					&&
+					!c.guids.ContainsKey(reqGuid)
+					)
+				{
+					// throw the error messages prepared earlier
+					foreach (var errorMessage in reqGuids[reqGuid])
+					{
+						Console.WriteLine(errorMessage);
+					}
+					c.Status |= Status.ContentError;
+				}
+			}
+
 		}
 		private static void CheckSchemaCompliance(CheckInfo c, BcfSource unzippedDir, string version, string fileExtension, string requiredSchema)
 		{
@@ -523,6 +587,5 @@ namespace bcfTool
 				return ms.ToArray();
 			}
 		}
-
 	}
 }
