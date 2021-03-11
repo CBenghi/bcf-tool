@@ -210,7 +210,12 @@ namespace bcfTool
 
 		private static DirectoryInfo GetRepoSchemasFolder(DirectoryInfo directoryInfo)
 		{
-			var enumOptions = new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive };
+			var enumOptions = new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive, RecurseSubdirectories = true };
+			var tmp = directoryInfo.GetDirectories("schemas", enumOptions).FirstOrDefault();
+			if (tmp != null)
+			{
+				return tmp;
+			}
 			return directoryInfo.Parent.GetDirectories("schemas", enumOptions).FirstOrDefault();
 		}
 
