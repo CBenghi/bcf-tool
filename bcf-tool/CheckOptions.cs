@@ -39,6 +39,9 @@ namespace bcfTool
 		[Option('x', "xsd", Default = false, Required = false, HelpText = "Check validity of the xsd schemas in the expected relative folder.")]
 		public bool CheckSchemaDefinition { get; set; }
 
+		[Option('r', "repoSchema", Default = "", Required = false, HelpText = "Version of the xsd schema in the expected relative folder that should be used for checks, e.g. '-r v3.0'.")]
+		public string UseRepoSchemaVersion { get; set; }
+
 		[Option('f', "files", Default = false, Required = false, HelpText = "Check expected content files are available.")]
 		public bool CheckFileContents { get; set; }
 
@@ -62,7 +65,7 @@ namespace bcfTool
 
 		internal static Status Run(CheckOptions opts)
 		{
-			Console.WriteLine("=== bcf-tool - checking example files.");
+			Console.WriteLine("=== bcf-tool - checking BCF files.");
 
 			if (opts.WriteMismatch)
 				opts.CheckZipMatch = true;
@@ -110,7 +113,7 @@ namespace bcfTool
 					checks.Add("File contents");
 				if (opts.CheckSchemaDefinition)
 					checks.Add("Xsd schemas correctness");
-				Console.WriteLine($"Checking: {string.Join(",", checks.ToArray())}." );
+				Console.WriteLine($"Checking: {string.Join(", ", checks.ToArray())}." );
 			}
 
 			if (Directory.Exists(opts.InputSource))
@@ -143,7 +146,12 @@ namespace bcfTool
 
 		private static Status ProcessExamplesFolder(DirectoryInfo directoryInfo, CheckInfo c)
 		{
-			var allBcfs = directoryInfo.GetFiles("*.bcf", SearchOption.AllDirectories)
+			if (c.Options.CheckSchemaDefinition)
+			{
+				CheckRelativePathSchemas(directoryInfo, c);
+			}
+			var eop = new EnumerationOptions() { RecurseSubdirectories = true, MatchCasing = MatchCasing.CaseInsensitive };
+			var allBcfs = directoryInfo.GetFiles("*.bcf", eop)
 				.Where(x => 
 					!x.FullName.Contains("unzipped", StringComparison.InvariantCultureIgnoreCase)
 					&&
@@ -151,7 +159,7 @@ namespace bcfTool
 					)
 				.ToList();
 			allBcfs.AddRange(
-				directoryInfo.GetFiles("*.bcfzip", SearchOption.AllDirectories)
+				directoryInfo.GetFiles("*.bcfzip", eop)
 				.Where(x => !x.FullName.Contains("unzipped", StringComparison.InvariantCultureIgnoreCase))
 				.ToList()
 				);
@@ -159,41 +167,51 @@ namespace bcfTool
 			{
 				ProcessSingleFile(bcf, c);
 			}
-			if (c.Options.CheckSchemaDefinition)
+			return c.Status;
+		}
+
+		private static void CheckRelativePathSchemas(DirectoryInfo directoryInfo, CheckInfo c)
+		{
+			var schemasfolder = GetRepoSchemasFolder(directoryInfo);
+			if (schemasfolder == null)
 			{
-				var enumOptions = new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive };
-				var schemasfolder = directoryInfo.Parent.GetDirectories("schemas", enumOptions).FirstOrDefault();
-				if (schemasfolder == null)
+				Console.WriteLine("XSD\t\tSchemas folder missing.");
+				c.Status |= Status.XsdSchemaError;
+				if (c.Options.UseRepoSchemaVersion != "")
 				{
-					Console.WriteLine("XSD\t\tSchemas folder missing.");
-					c.Status |= Status.XsdSchemaError;
+					Console.WriteLine($"XSD\t\tCould not use relative path for checks on {c.Options.UseRepoSchemaVersion}, reverting to internal schemas.");
+					c.Options.UseRepoSchemaVersion = "";
 				}
-				else
+			}
+			else
+			{
+				XmlReaderSettings rSettings = new XmlReaderSettings();
+				foreach (var schemaFile in schemasfolder.GetFiles("*.xsd", new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive }))
 				{
-					XmlReaderSettings rSettings = new XmlReaderSettings();
-					foreach (var schemaFile in schemasfolder.GetFiles("*.xsd", enumOptions))
+					try
 					{
-						try
-						{
-							rSettings.Schemas.Add("", schemaFile.FullName);
-						}
-						catch (XmlSchemaException ex)
-						{
-							var rel = Path.GetRelativePath(c.Options.ResolvedSource.FullName, schemaFile.FullName);
-							Console.WriteLine($"XSD\t{rel}\tSchema error: {ex.Message} at line {ex.LineNumber}, position {ex.LinePosition}.");
-							c.Status |= Status.XsdSchemaError;
-						}
-						catch (Exception ex)
-						{
-							var rel = Path.GetRelativePath(c.Options.ResolvedSource.FullName, schemaFile.FullName);
-							Console.WriteLine($"XSD\t{rel}\tSchema error: {ex.Message}.");
-							c.Status |= Status.XsdSchemaError;
-						}
+						rSettings.Schemas.Add("", schemaFile.FullName);
+					}
+					catch (XmlSchemaException ex)
+					{
+						var rel = Path.GetRelativePath(c.Options.ResolvedSource.FullName, schemaFile.FullName);
+						Console.WriteLine($"XSD\t{rel}\tSchema error: {ex.Message} at line {ex.LineNumber}, position {ex.LinePosition}.");
+						c.Status |= Status.XsdSchemaError;
+					}
+					catch (Exception ex)
+					{
+						var rel = Path.GetRelativePath(c.Options.ResolvedSource.FullName, schemaFile.FullName);
+						Console.WriteLine($"XSD\t{rel}\tSchema error: {ex.Message}.");
+						c.Status |= Status.XsdSchemaError;
 					}
 				}
 			}
-			
-			return c.Status;
+		}
+
+		private static DirectoryInfo GetRepoSchemasFolder(DirectoryInfo directoryInfo)
+		{
+			var enumOptions = new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive };
+			return directoryInfo.Parent.GetDirectories("schemas", enumOptions).FirstOrDefault();
 		}
 
 		private class CheckInfo
@@ -333,12 +351,16 @@ namespace bcfTool
 				Console.WriteLine($"VERSION\t{c.CleanName(zippedFileInfo)}\tversion not resolved, further checks stopped.");
 				return Status.ContentError;
 			}
-
 			if (c.Options.CheckSchema)
 			{
-				CheckSchemaCompliance(c, source, version, "bcf", $"schemas/{version}/markup.xsd");
-				CheckSchemaCompliance(c, source, version, "bcfv", $"schemas/{version}/visinfo.xsd");
-				CheckSchemaCompliance(c, source, version, "bcfp", $"schemas/{version}/project.xsd");
+				var schemaPath = $"schemas/{version}";
+				if (source is FolderSource && c.Options.UseRepoSchemaVersion == version)
+				{
+					schemaPath = GetRepoSchemasFolder(c.Options.ResolvedSource as DirectoryInfo).FullName;
+				}
+				CheckSchemaCompliance(c, source, version, "bcf", Path.Combine(schemaPath, "markup.xsd"));
+				CheckSchemaCompliance(c, source, version, "bcfv", Path.Combine(schemaPath, "visinfo.xsd"));
+				CheckSchemaCompliance(c, source, version, "bcfp", Path.Combine(schemaPath, "project.xsd"));
 			}
 			if (c.Options.CheckUniqueGuid && source is FolderSource)
 			{
@@ -360,6 +382,7 @@ namespace bcfTool
 			}
 			if (c.Options.CheckImageSize && source is FolderSource)
 			{
+				// todo: 2021: should check image files from zip
 				try
 				{
 					CheckImageSizeIsOk(c, unzippedDirInfo);
