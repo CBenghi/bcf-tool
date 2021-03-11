@@ -271,7 +271,7 @@ namespace bcfTool
 						if (!onDiskFile.Exists)
 						{
 							Console.WriteLine($"MISMATCH\t{c.CleanName(onDiskFile)}\tUncompressed file not found.");
-							c.Status |= Status.ContentMismatch;
+							c.Status |= Status.ContentMismatchError;
 							if (c.Options.WriteMismatch)
 							{
 								var zipCont = ReadFully(entry.Open());
@@ -302,7 +302,7 @@ namespace bcfTool
 								if (dskS != zipS)
 								{
 									Console.WriteLine($"MISMATCH\t{c.CleanName(onDiskFile)}\tCompressed/Uncompressed mismatch.");
-									c.Status |= Status.ContentMismatch;
+									c.Status |= Status.ContentMismatchError;
 									if (c.Options.WriteMismatch)
 									{
 										var mismatchName = onDiskFile.FullName + ".zipMismatch";

@@ -5,18 +5,12 @@ namespace bcfTool
 {
 	partial class Program
 	{
-		[Verb("zip", HelpText = "rezip the unzipped folders - Not implemented yet.")]
-		class ZipOptions
-		{
-			// options here
-		}
-
 		static public int Main(string[] args)
 		{
-			var t = Parser.Default.ParseArguments<CheckOptions, ZipOptions>(args)
+			var t = Parser.Default.ParseArguments<CheckOptions, ErrorCodeOptions>(args)
 			  .MapResult(
 				(CheckOptions opts) => CheckOptions.Run(opts),
-				(ZipOptions opts) => RunCommitAndReturnExitCode(opts),
+				(ErrorCodeOptions opts) => ErrorCodeOptions.Run(opts),
 				errs => Status.CommandLineError);
 			return (int)t;
 		}
@@ -29,15 +23,8 @@ namespace bcfTool
 			CommandLineError = 2,
 			NotFoundError = 4,
 			ContentError = 8,
-			ContentMismatch = 16,
+			ContentMismatchError = 16,
 			XsdSchemaError = 32,
 		}
-
-		private static Status RunCommitAndReturnExitCode(ZipOptions opts)
-		{
-			Console.WriteLine("Not implemented.");
-			return Status.NotImplemented;
-		}
-
 	}
 }
