@@ -115,21 +115,32 @@ namespace bcfTool
 					checks.Add("Xsd schemas correctness");
 				Console.WriteLine($"Checking: {string.Join(", ", checks.ToArray())}." );
 			}
+			if (!string.IsNullOrWhiteSpace(opts.UseRepoSchemaVersion))
+			{
+				if (!opts.UseRepoSchemaVersion.StartsWith("v"))
+				{
+					Console.WriteLine($"Invalid parameter 'repoSchema': '{opts.UseRepoSchemaVersion}'. It should be 'v[Major].[Minor]', e.g. 'v3.0'");
+					return Status.CommandLineError;
+				}
+				Console.WriteLine($"Attempting to use local schema files for test cases of version '{opts.UseRepoSchemaVersion}'.");				
+			}
 
 			if (Directory.Exists(opts.InputSource))
 			{
+				Console.WriteLine("");
 				var t = new DirectoryInfo(opts.InputSource);
 				opts.ResolvedSource = t;
 				var ret = ProcessExamplesFolder(t, new CheckInfo(opts));
-				Console.WriteLine($"Completed with status: {ret}.");
+				Console.WriteLine($"\r\nCompleted with status: {ret}.");
 				return ret;
 			}
 			if (File.Exists(opts.InputSource))
 			{
+				Console.WriteLine("");
 				var t = new FileInfo(opts.InputSource);
 				opts.ResolvedSource = t;
 				var ret = ProcessSingleFile(t, new CheckInfo(opts));
-				Console.WriteLine($"Completed with status: {ret}.");
+				Console.WriteLine($"\r\nCompleted with status: {ret}.");
 				return ret;
 			}
 			Console.WriteLine($"Error: Invalid input source '{opts.InputSource}'");
@@ -210,13 +221,27 @@ namespace bcfTool
 
 		private static DirectoryInfo GetRepoSchemasFolder(DirectoryInfo directoryInfo)
 		{
+			// the assumption is that the directory is either the entire repo, 
+			// or one of the test cases
+			//
 			var enumOptions = new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive, RecurseSubdirectories = true };
 			var tmp = directoryInfo.GetDirectories("schemas", enumOptions).FirstOrDefault();
 			if (tmp != null)
 			{
 				return tmp;
 			}
-			return directoryInfo.Parent.GetDirectories("schemas", enumOptions).FirstOrDefault();
+			var searchPath = "Test Cases";
+			var pos = directoryInfo.FullName.IndexOf(searchPath, StringComparison.InvariantCultureIgnoreCase);
+			if (pos != -1)
+			{
+				var testcasefolder = directoryInfo.FullName.Substring(0, pos + searchPath.Length);
+				var tdDirInfo = new DirectoryInfo(testcasefolder);
+				// the parent of the test cases is the main repo folder
+				if (!tdDirInfo.Exists) // this shoud always be the case
+					return null;
+				return tdDirInfo.Parent.GetDirectories("schemas", enumOptions).FirstOrDefault();
+			}
+			return null;
 		}
 
 		private class CheckInfo
@@ -366,6 +391,7 @@ namespace bcfTool
 				CheckSchemaCompliance(c, source, version, "bcf", Path.Combine(schemaPath, "markup.xsd"));
 				CheckSchemaCompliance(c, source, version, "bcfv", Path.Combine(schemaPath, "visinfo.xsd"));
 				CheckSchemaCompliance(c, source, version, "bcfp", Path.Combine(schemaPath, "project.xsd"));
+				CheckSchemaCompliance(c, source, version, "version", Path.Combine(schemaPath, "version.xsd"));
 			}
 			if (c.Options.CheckUniqueGuid && source is FolderSource)
 			{

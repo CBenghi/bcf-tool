@@ -13,7 +13,7 @@
 		<icon>icon.png</icon>
 	</metadata>
 	<files>
-		<file src="$publishdir$netcoreapp3.1\icon.png" target="icon.png" />
-		<file src="$publishdir$netcoreapp3.1\**\*" target="tools/netcoreapp3.1/" />
+		<file src="$publishdir$net5.0\icon.png" target="icon.png" />
+		<file src="$publishdir$net5.0\**\*" target="tools/net5.0/" />
 	</files>
 </package>
