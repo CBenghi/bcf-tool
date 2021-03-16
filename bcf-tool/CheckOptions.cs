@@ -260,7 +260,7 @@ namespace bcfTool
 			public string validatingFile { get; set; }
 
 			public Status Status { get; internal set; }
-
+			
 			public void validationReporter(object sender, ValidationEventArgs e)
 			{
 				var location = "";
@@ -420,7 +420,13 @@ namespace bcfTool
 				}
 				catch (Exception ex)
 				{
-					Console.WriteLine($"INFO\t{c.CleanName(zippedFileInfo)}\tCannot check image files, {ex.Message}");
+					var message = $"WARNING\t{c.CleanName(zippedFileInfo)}\tCannot check image files, {ex.Message}";
+					Console.WriteLine(message);				
+					if (message.Contains("'Gdip'", StringComparison.InvariantCultureIgnoreCase))
+					{
+						Console.WriteLine("INFO\tTry installing library libgdiplus, e.g.: 'sudo apt-get install -y libgdiplus', further image checks are not going to be perforemed.");
+						c.Options.CheckImageSize = false;
+					}
 				}
 			}
 
