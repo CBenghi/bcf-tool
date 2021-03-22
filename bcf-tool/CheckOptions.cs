@@ -618,8 +618,13 @@ namespace bcfTool
 			{
 				requiredSchema
 			};
-			if (version == "v3.0")
-				schemas.Add($"schemas/{version}/shared-types.xsd");
+			if (version == "v3.0") // version 3 needs the shared type as well
+			{
+				var freq = new FileInfo(requiredSchema);
+				var shared =
+					freq.Directory.GetFiles("shared-types.xsd", new EnumerationOptions() { MatchCasing = MatchCasing.CaseInsensitive }).FirstOrDefault();
+				schemas.Add(shared.FullName);
+			}
 			var markupFiles = unzippedDir.GetLocalNames($".{fileExtension}");
 			foreach (var markupFile in markupFiles)
 			{
